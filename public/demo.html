@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Herve Hub — API demo</title>
+  <style>
+    body { font-family: system-ui, Arial; padding: 20px; max-width: 780px; margin: 0 auto; }
+    input, textarea { width: 100%; padding: 8px; margin: 6px 0 12px; }
+    button { padding: 8px 12px; }
+    .row { display: flex; gap: 8px; }
+    .card { border: 1px solid #ddd; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+    pre { background: #f7f7f7; padding: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Herve Hub — Backend Demo</h1>
+  <div class="card">
+    <h2>Register</h2>
+    <input id="regName" placeholder="Full name">
+    <input id="regEmail" placeholder="Email">
+    <input id="regPassword" placeholder="Password" type="password">
+    <button id="regBtn">Register</button>
+    <div id="regResult"></div>
+  </div>
+
+  <div class="card">
+    <h2>Login</h2>
+    <input id="loginEmail" placeholder="Email">
+    <input id="loginPassword" placeholder="Password" type="password">
+    <button id="loginBtn">Login</button>
+    <div id="loginResult"></div>
+  </div>
+
+  <div class="card">
+    <h2>Create post</h2>
+    <textarea id="postContent" placeholder="Write something..."></textarea>
+    <button id="publishBtn">Publish (requires login)</button>
+    <div id="publishResult"></div>
+  </div>
+
+  <div class="card">
+    <h2>Ask AI</h2>
+    <input id="aiPrompt" placeholder="Ask something like: Explain photosynthesis">
+    <button id="askAiBtn">Ask AI (requires login)</button>
+    <div id="aiResult"></div>
+  </div>
+
+  <div class="card">
+    <h2>Feed</h2>
+    <button id="refreshFeed">Refresh</button>
+    <div id="feed"></div>
+  </div>
+
+  <script>
+    function setToken(token) { localStorage.setItem('hhub_token', token); }
+    function getToken() { return localStorage.getItem('hhub_token'); }
+
+    document.getElementById('regBtn').addEventListener('click', async () => {
+      const name = document.getElementById('regName').value;
+      const email = document.getElementById('regEmail').value;
+      const password = document.getElementById('regPassword').value;
+      const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ name, email, password }) });
+      const data = await res.json();
+      document.getElementById('regResult').textContent = JSON.stringify(data);
+      if (data.token) setToken(data.token);
+    });
+
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const email = document.getElementById('loginEmail').value;
+      const password = document.getElementById('loginPassword').value;
+      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ email, password }) });
+      const data = await res.json();
+      document.getElementById('loginResult').textContent = JSON.stringify(data);
+      if (data.token) setToken(data.token);
+    });
+
+    document.getElementById('publishBtn').addEventListener('click', async () => {
+      const content = document.getElementById('postContent').value;
+      const token = getToken();
+      const res = await fetch('/api/posts', { method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ content }) });
+      const data = await res.json();
+      document.getElementById('publishResult').textContent = JSON.stringify(data);
+      loadFeed();
+    });
+
+    document.getElementById('askAiBtn').addEventListener('click', async () => {
+      const prompt = document.getElementById('aiPrompt').value;
+      const token = getToken();
+      const res = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ prompt }) });
+      const data = await res.json();
+      document.getElementById('aiResult').textContent = JSON.stringify(data);
+    });
+
+    async function loadFeed() {
+      const res = await fetch('/api/posts');
+      const rows = await res.json();
+      const feed = document.getElementById('feed');
+      feed.innerHTML = '';
+      rows.forEach(r => {
+        const el = document.createElement('div');
+        el.innerHTML = `<strong>${r.user_name}</strong> <small>${r.created_at}</small><p>${r.content}</p><hr>`;
+        feed.appendChild(el);
+      });
+    }
+    document.getElementById('refreshFeed').addEventListener('click', loadFeed);
+    loadFeed();
+  </script>
+</body>
+</html>

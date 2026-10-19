@@ -3,7 +3,10 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const sqlite3 = require('sqlite3').verbose();
-const fetch = require('node-fetch');
+// Use global fetch when available (Node 18+). If not, dynamically import node-fetch at runtime.
+const fetch = globalThis.fetch
+  ? globalThis.fetch.bind(globalThis)
+  : (...args) => import('node-fetch').then(m => m.default(...args));
 const cors = require('cors');
 const fs = require('fs');
 require('dotenv').config();
@@ -15,8 +18,10 @@ const PORT = process.env.PORT || 3000;
 // Initialize DB
 const dbFile = process.env.DB_FILE || './hhub.db';
 const db = new sqlite3.Database(dbFile);
-const migrations = fs.readFileSync('./migrations.sql', 'utf8');
-db.exec(migrations, err => { if (err) console.error('Migration error', err); });
+const migrations = fs.existsSync('./migrations.sql') ? fs.readFileSync('./migrations.sql', 'utf8') : null;
+if (migrations) {
+  db.exec(migrations, err => { if (err) console.error('Migration error', err); });
+}
 
 const app = express();
 app.use(cors());
@@ -63,11 +68,16 @@ app.post('/api/login', (req, res) => {
   db.get('SELECT id, name, email, password_hash FROM users WHERE email = ?', [email], async (err, row) => {
     if (err) return res.status(500).json({ error: 'DB error' });
     if (!row) return res.status(401).json({ error: 'Invalid credentials' });
-    const valid = await bcrypt.compare(password, row.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-    const user = { id: row.id, name: row.name, email: row.email };
-    const token = jwt.sign(user, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user });
+    try {
+      const valid = await bcrypt.compare(password, row.password_hash);
+      if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+      const user = { id: row.id, name: row.name, email: row.email };
+      const token = jwt.sign(user, JWT_SECRET, { expiresIn: '7d' });
+      res.json({ token, user });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Server error' });
+    }
   });
 });
 
@@ -85,6 +95,7 @@ app.post('/api/posts', authMiddleware, (req, res) => {
   db.run('INSERT INTO posts (user_id, content, image_url) VALUES (?,?,?)', [req.user.id, content, image_url || null], function (err) {
     if (err) return res.status(500).json({ error: 'DB error' });
     db.get('SELECT p.id, p.content, p.image_url, p.created_at, u.id as user_id, u.name as user_name FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id = ?', [this.lastID], (err, row) => {
+      if (err) return res.status(500).json({ error: 'DB error' });
       res.status(201).json(row);
     });
   });
@@ -109,7 +120,7 @@ app.post('/api/ai', authMiddleware, async (req, res) => {
       })
     });
     const data = await resp.json();
-    const answer = data.choices?.[0]?.message?.content || data.error || 'No answer';
+    const answer = data.choices?.[0]?.message?.content || (data.error && (data.error.message || data.error)) || 'No answer';
     res.json({ answer });
   } catch (e) {
     console.error('AI error', e);
